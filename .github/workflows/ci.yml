@@ -44,6 +44,9 @@ jobs:
       - name: Run tests
         run: clojure -M:test
 
+      - name: Lint
+        run: clojure -M:lint
+
   cljs-test:
     name: shadow-cljs :node-test
     runs-on: ubuntu-latest
