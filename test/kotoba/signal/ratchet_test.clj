@@ -66,6 +66,22 @@
     {:shared-secret shared-secret
      :bob-initial-dh (:spk bob-id)}))
 
+(deftest encrypt-message-before-receiving-first-throws-ex-info
+  (testing "a bare init-receiver state has :send-chain-key nil (per its own
+            docstring: Bob has no send-chain until he first decrypts a
+            message from Alice) -- calling encrypt-message on it must throw
+            a clear ex-info, not let a raw javax.crypto exception escape
+            three layers down from an unguarded HMAC call"
+    (let [{:keys [shared-secret bob-initial-dh]} (session-pair)
+          bob (ratchet/init-receiver shared-secret bob-initial-dh)]
+      (try
+        (ratchet/encrypt-message bob (bytes< "bob speaks first?"))
+        (is false "expected encrypt-message to throw ex-info")
+        (catch clojure.lang.ExceptionInfo e
+          (is (re-find #"cannot send before receiving" (.getMessage e))))
+        (catch Exception e
+          (is false (str "expected ex-info, got " (.getClass e) ": " (.getMessage e))))))))
+
 (deftest full-session-roundtrip-both-directions
   (let [{:keys [shared-secret bob-initial-dh]} (session-pair)
         alice (ratchet/init-sender shared-secret (:pub bob-initial-dh))
