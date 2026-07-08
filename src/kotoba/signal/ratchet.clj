@@ -139,11 +139,20 @@
   "Advance the sending chain by one message, DH-ratcheting first if the peer's
    ratchet pubkey has moved since the send-chain was last (re)derived. Returns
    [new-state {:header {:dh-pub :n} :iv :ciphertext}] — :header MUST travel
-   with the ciphertext so the receiver can follow the same ratchet."
+   with the ciphertext so the receiver can follow the same ratchet.
+   Throws if called on a bare `init-receiver` state before that side has
+   received (and decrypted) a first message from its peer: :send-chain-key
+   is nil until then (see `init-receiver`'s docstring) and stays nil unless
+   the auto-ratchet below fires, which requires :dh-remote to already be
+   set by a prior decrypt-message -- nothing else here would otherwise
+   catch a still-nil chain key before it reaches the KDF/HMAC layer."
   [state plaintext]
   (let [state (if (and (:dh-remote state) (not= (:send-chain-remote state) (:dh-remote state)))
                 (-> (dh-ratchet-send state) (assoc :send-chain-remote (:dh-remote state)))
                 state)
+        _ (when (nil? (:send-chain-key state))
+            (throw (ex-info "ratchet: cannot send before receiving a first message from the peer"
+                             {:dh-remote (:dh-remote state)})))
         {:keys [chain-key message-key]} (kdf-chain-key (:send-chain-key state))
         env (ratchet-encrypt message-key plaintext)
         header {:dh-pub (:dh-pub state) :n (:send-n state)}]
