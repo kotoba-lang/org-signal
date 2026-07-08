@@ -49,11 +49,19 @@ deps.edn alias) is test/build infrastructure only, not part of what JVM
 consumers pull in via `:local/root` (JVM `:paths` is still just `["src"]`,
 untouched).
 
-Group ratchet (`group.clj`), X3DH (`x3dh.clj`), and CACAO identity binding
-remain **JVM-only for now** — app-aozora's messenger uses X3DH-lite (identity
-key + signed prekey, no one-time-prekeys; see `yoro-ui.interop.signal` there)
-rather than this package's full X3DH, so porting `x3dh.cljs`/`group.cljs` is
-deferred until a consumer actually needs them, not implemented speculatively.
+`group.cljs` now exists (app-aozora's messenger added group chat, needing the
+sender-keys ratchet) — it's mostly glue over `ratchet.cljs`'s already-ported
+`kdf-chain-key`/`ratchet-encrypt`/`ratchet-decrypt`, plus Ed25519 sign/verify.
+One deliberate difference from the JVM version: `:sig-pub` here is a raw
+Ed25519 public key, not a `did:key` string (see `group.cljs`'s ns docstring —
+this package doesn't need a did:key encoder for what that signature actually
+proves).
+
+X3DH (`x3dh.clj`) and CACAO identity binding remain **JVM-only for now** —
+app-aozora's messenger uses X3DH-lite (identity key + signed prekey, no
+one-time-prekeys; see `yoro-ui.interop.signal` there) rather than this
+package's full X3DH, so porting `x3dh.cljs` is deferred until a consumer
+actually needs it, not implemented speculatively.
 
 Also out of scope (follow-up work, not implemented here, both backends):
 - **Key revocation / rotation policy** for SPKs and group sender-keys (the
@@ -106,7 +114,8 @@ src/kotoba/signal/
   ratchet.clj    Double Ratchet (root KDF, chain KDF, AES-256-GCM messages) — JVM/sync
   ratchet.cljs   same state shape/algorithm — CLJS/async, + a bytes= content-equality
                  fix a naive port would have missed (see ns docstring)
-  group.clj      sender-keys group ratchet (distribution, sender/member derive) — JVM only, no CLJS port yet
+  group.clj      sender-keys group ratchet (distribution, sender/member derive) — JVM/sync
+  group.cljs     same shape — CLJS/async, mostly glue over ratchet.cljs + Ed25519 sign/verify
 test/kotoba/signal/
   hkdf_test.clj(s)     RFC 5869 §A.1–A.3 vectors, byte-for-byte, both backends
   x3dh_test.clj        bundle signature verify/reject, initiate↔respond round-trip (JVM only)
@@ -114,7 +123,7 @@ test/kotoba/signal/
                         backends; the CLJS suite additionally round-trips every
                         envelope through JSON/base64 (simulating the wire) and
                         has a dedicated post-compromise-security healing test
-  group_test.clj       distribution auth, sender/member lockstep, chain forward secrecy (JVM only)
+  group_test.clj(s)    distribution auth, sender/member lockstep, chain forward secrecy, both backends
 ```
 
 ## Usage — JVM (sync)
@@ -155,6 +164,26 @@ No `x3dh.cljs` yet (see Scope) — bring your own session-establishment secret
     (.then (fn [[_bob1 pt1]] (js/console.log (utf8-decode pt1)))))  ;=> "hi bob"
 ```
 
+Group (sender-keys) — one chain per sender, distributed pairwise (e.g. over
+the same 1:1 session above) to every member:
+
+```clojure
+(require '[kotoba.signal.group :as group])
+
+(def sender-key (group/create-sender-key))
+(def dist (group/distribution-message sender-key 0))  ; send this to each member
+(assert (group/verify-distribution dist))              ; member checks first
+
+(-> (js/Promise.all #js [(group/sender-advance sender-key)
+                         (group/member-derive (:chain-key dist))])
+    (.then (fn [^js pair]
+             (let [[_sk1 sender-mk] (aget pair 0)
+                   [_ck1 member-mk] (aget pair 1)]
+               (-> (group/encrypt-segment sender-mk (utf8 "group message"))
+                   (.then (fn [env] (group/decrypt-segment member-mk env)))
+                   (.then (fn [pt] (js/console.log (utf8-decode pt)))))))))  ;=> "group message"
+```
+
 ## Correctness
 
 **JVM** — `clojure -M:test` → **23 tests / 62 assertions, 0 failures, 0 errors**:
@@ -172,7 +201,7 @@ No `x3dh.cljs` yet (see Scope) — bring your own session-establishment secret
   agreement with the sender's chain.
 
 **CLJS** — `pnpm install && pnpm exec shadow-cljs compile test && node out/node-tests.js`
-→ **10 tests / 23 assertions, 0 failures, 0 errors**:
+→ **16 tests / 31 assertions, 0 failures, 0 errors**:
 - Same HKDF RFC 5869 vectors, same chain-key forward secrecy / message-key
   uniqueness / AES-GCM round-trip+tamper properties as the JVM suite.
 - Full bidirectional session round trip with every envelope going through an
@@ -181,6 +210,9 @@ No `x3dh.cljs` yet (see Scope) — bring your own session-establishment secret
 - Post-compromise-security healing: an attacker who steals the current
   send-chain state loses the thread the instant either side performs a fresh
   DH turn, since the new root key needs a private key they never held.
+- Group (sender-keys): same properties as the JVM suite — distribution
+  verify/reject, sender/member lockstep agreement, 50-step forward secrecy,
+  a member without a valid distribution can't forge agreement.
 
 ## License
 
