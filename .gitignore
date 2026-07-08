@@ -3,3 +3,9 @@ target/
 .clj-kondo/
 .lsp/
 *.class
+
+# cljs test build (dev-only, not part of the JVM package)
+node_modules/
+out/
+.shadow-cljs/
+pnpm-lock.yaml
