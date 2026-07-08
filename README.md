@@ -13,18 +13,49 @@ for private live-streaming: a broadcaster ratchets a chain key forward once per
 media segment, and every viewer bootstrapped into the group derives that
 segment's key without a fresh per-segment DH round.
 
-## Scope — JVM Clojure only
+## Scope — two backends, JVM (sync) + CLJS (async), no `.cljc` sharing
 
-**This implementation targets JVM Clojure (`.clj`) only.** X25519 Diffie-Hellman
-uses `java.security`/`javax.crypto`'s built-in "X25519"/"XDH" support (JDK 11+);
-there is no pure-Clojure/CLJS X25519 in the kotoba-lang dependency graph, and
-hand-rolling one is out of scope for correctness reasons (see "Why JVM-only"
-below). **CJS / browser / babashka are NOT supported** — do not `:require` this
-from a `.cljc` file expecting cross-platform behavior. A CJS-capable X25519 (via
-a vetted pure-JS/WASM implementation, e.g. something noble-curves-equivalent)
-is a legitimate follow-up but is explicitly deferred.
+**JVM Clojure (`.clj`) and ClojureScript (`.cljs`) are both supported, as
+separate sibling implementations, not one shared `.cljc`.** The original
+"CJS not supported" call (below, kept for history) turned out to be about the
+*JVM's* dependency graph having no X25519, not CJS lacking one — app-aozora
+(a browser messenger) needed exactly this ratchet and already had a working,
+tested `@noble/curves`-based X25519/AES-GCM implementation (audited, no native
+bindings, runs in browsers/Workers/Node), so `x25519.cljs`/`hkdf.cljs`/
+`ratchet.cljs` port the JVM files' algorithms and state shapes 1:1 using that.
 
-Also out of scope (follow-up work, not implemented here):
+They are genuinely separate files, not `#?(:clj :cljs)` branches in one
+`.cljc`, because **Web Crypto has no synchronous API** — every JVM function
+here (`dh`, `hkdf`, `kdf-chain-key`, `ratchet-encrypt`, ...) returns a plain
+value; every CLJS one returns a `Promise` of the same value. Forcing both
+into one file would mean either making the JVM side needlessly async or
+giving CLJS callers a fake-sync API — neither is worth it for the amount of
+logic actually shared (the algorithms, not the code).
+
+**Porting gotcha that would NOT have shown up in the JVM test suite:** the JVM
+`decrypt-message` compares `(:dh-remote state)` against an incoming header's
+`:dh-pub` with plain `=`, which for `byte[]` is *reference* equality in
+Clojure — harmless there only because the JVM tests keep everything as live,
+non-serialized data (the same array object flows unchanged through the pure
+functions). The CLJS port's tests deliberately round-trip every envelope
+through `JSON.stringify`/`atob`/`btoa` (simulating the real wire), which
+exposed that a naive line-for-line translation would DH-ratchet on every
+single message once real serialization is involved. `ratchet.cljs` fixes this
+with a `bytes=` byte-content comparison instead — see its ns docstring and
+`ratchet_test.cljs`'s `full-session-roundtrip-both-directions-over-the-wire`.
+
+CLJS-only dev tooling (`shadow-cljs.edn`, `package.json`, the `:cljs-test`
+deps.edn alias) is test/build infrastructure only, not part of what JVM
+consumers pull in via `:local/root` (JVM `:paths` is still just `["src"]`,
+untouched).
+
+Group ratchet (`group.clj`), X3DH (`x3dh.clj`), and CACAO identity binding
+remain **JVM-only for now** — app-aozora's messenger uses X3DH-lite (identity
+key + signed prekey, no one-time-prekeys; see `yoro-ui.interop.signal` there)
+rather than this package's full X3DH, so porting `x3dh.cljs`/`group.cljs` is
+deferred until a consumer actually needs them, not implemented speculatively.
+
+Also out of scope (follow-up work, not implemented here, both backends):
 - **Key revocation / rotation policy** for SPKs and group sender-keys (the
   primitives to rotate exist; a scheduler/policy for *when* does not).
 - **Group membership management** (add/remove members, access control) — the
@@ -35,7 +66,7 @@ Also out of scope (follow-up work, not implemented here):
 - **Header encryption** (Signal's optional "sealed sender"-adjacent header
   protection) — ratchet headers (`{:dh-pub :n}`) are sent in the clear here.
 
-## Why JVM-only, why HKDF is hand-rolled, why not XEdDSA
+## Why the JVM backend is built the way it is (HKDF hand-rolled, no XEdDSA)
 
 - **X25519 / AES-256-GCM**: use the JDK's own `java.security`/`javax.crypto`
   ("X25519" KeyAgreement, "AES/GCM/NoPadding" Cipher) rather than reimplementing
@@ -67,19 +98,26 @@ Also out of scope (follow-up work, not implemented here):
 
 ```
 src/kotoba/signal/
-  hkdf.clj      RFC 5869 HKDF-SHA256 (extract / expand), from scratch
-  x25519.clj    raw 32-byte X25519 DH via JCA (JVM XDH provider)
-  x3dh.clj      X3DH key agreement (identity/prekey bundles, initiate/respond)
-  ratchet.clj   Double Ratchet (root KDF, chain KDF, AES-256-GCM messages)
-  group.clj     sender-keys group ratchet (distribution, sender/member derive)
+  hkdf.clj       RFC 5869 HKDF-SHA256 (extract / expand), from scratch — JVM/sync
+  hkdf.cljs      same algorithm, Web Crypto — CLJS/async (Promise)
+  x25519.clj     raw 32-byte X25519 DH via JCA (JVM XDH provider) — JVM/sync
+  x25519.cljs    raw 32-byte X25519 DH via @noble/curves — CLJS/sync (no Promise needed)
+  x3dh.clj       X3DH key agreement (identity/prekey bundles, initiate/respond) — JVM only, no CLJS port yet
+  ratchet.clj    Double Ratchet (root KDF, chain KDF, AES-256-GCM messages) — JVM/sync
+  ratchet.cljs   same state shape/algorithm — CLJS/async, + a bytes= content-equality
+                 fix a naive port would have missed (see ns docstring)
+  group.clj      sender-keys group ratchet (distribution, sender/member derive) — JVM only, no CLJS port yet
 test/kotoba/signal/
-  hkdf_test.clj     RFC 5869 §A.1–A.3 vectors, byte-for-byte
-  x3dh_test.clj     bundle signature verify/reject, initiate↔respond round-trip
-  ratchet_test.clj  forward secrecy, message-key uniqueness, full session
-  group_test.clj    distribution auth, sender/member lockstep, chain forward secrecy
+  hkdf_test.clj(s)     RFC 5869 §A.1–A.3 vectors, byte-for-byte, both backends
+  x3dh_test.clj        bundle signature verify/reject, initiate↔respond round-trip (JVM only)
+  ratchet_test.clj(s)  forward secrecy, message-key uniqueness, full session, both
+                        backends; the CLJS suite additionally round-trips every
+                        envelope through JSON/base64 (simulating the wire) and
+                        has a dedicated post-compromise-security healing test
+  group_test.clj       distribution auth, sender/member lockstep, chain forward secrecy (JVM only)
 ```
 
-## Usage
+## Usage — JVM (sync)
 
 ```clojure
 (require '[kotoba.signal.x3dh :as x3dh]
@@ -102,9 +140,24 @@ test/kotoba/signal/
       (String. ^bytes pt1 "UTF-8"))))               ;=> "hi bob"
 ```
 
+## Usage — CLJS (async)
+
+No `x3dh.cljs` yet (see Scope) — bring your own session-establishment secret
+(X3DH-lite, a simpler ECDH, whatever fits) and bootstrap the ratchet from it:
+
+```clojure
+(require '[kotoba.signal.ratchet :as ratchet])
+
+(-> (js/Promise.all #js [(ratchet/init-sender shared-secret bobs-initial-dh-pub)
+                         (ratchet/init-receiver shared-secret bobs-initial-dh-keypair)])
+    (.then (fn [^js pair] (ratchet/encrypt-message (aget pair 0) (utf8 "hi bob"))))
+    (.then (fn [[alice1 env1]] (ratchet/decrypt-message bob env1)))
+    (.then (fn [[_bob1 pt1]] (js/console.log (utf8-decode pt1)))))  ;=> "hi bob"
+```
+
 ## Correctness
 
-`clojure -M:test` → **23 tests / 62 assertions, 0 failures, 0 errors**:
+**JVM** — `clojure -M:test` → **23 tests / 62 assertions, 0 failures, 0 errors**:
 - HKDF pinned against all 3 RFC 5869 test vectors (extract + expand + combined).
 - X3DH: SPK-signature verify/reject, initiate↔respond shared-secret round-trip
   (with and without an OPK), distinct sessions ⇒ distinct secrets, OPK pool
@@ -117,6 +170,17 @@ test/kotoba/signal/
   and member independently derive identical message keys in lockstep, 50-step
   chain forward secrecy, a member without a valid distribution cannot forge
   agreement with the sender's chain.
+
+**CLJS** — `pnpm install && pnpm exec shadow-cljs compile test && node out/node-tests.js`
+→ **10 tests / 23 assertions, 0 failures, 0 errors**:
+- Same HKDF RFC 5869 vectors, same chain-key forward secrecy / message-key
+  uniqueness / AES-GCM round-trip+tamper properties as the JVM suite.
+- Full bidirectional session round trip with every envelope going through an
+  actual `JSON.stringify`/base64 round trip (not live in-memory objects) —
+  this is what caught the `bytes=` porting gotcha (see Scope).
+- Post-compromise-security healing: an attacker who steals the current
+  send-chain state loses the thread the instant either side performs a fresh
+  DH turn, since the new root key needs a private key they never held.
 
 ## License
 
