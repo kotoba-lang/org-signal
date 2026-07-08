@@ -57,11 +57,29 @@ Ed25519 public key, not a `did:key` string (see `group.cljs`'s ns docstring —
 this package doesn't need a did:key encoder for what that signature actually
 proves).
 
-X3DH (`x3dh.clj`) and CACAO identity binding remain **JVM-only for now** —
-app-aozora's messenger uses X3DH-lite (identity key + signed prekey, no
-one-time-prekeys; see `yoro-ui.interop.signal` there) rather than this
-package's full X3DH, so porting `x3dh.cljs` is deferred until a consumer
-actually needs it, not implemented speculatively.
+`x3dh.cljs` now exists (app-aozora's messenger upgrading from its "X3DH-lite"
+identity-key + signed-prekey establishment to full X3DH with one-time
+prekeys needed it) — same 1:1 port of `x3dh.clj`'s algorithm/state shapes as
+`ratchet.cljs`/`group.cljs`, with the same two deliberate cljs-side
+differences: every DH-then-KDF function returns a `Promise` (Web Crypto's
+HKDF has no sync API, same reason `ratchet.cljs` is async), and `:sign-pub`
+is a raw Ed25519 public key rather than a `did:key` string (`group.cljs`'s
+already-established precedent — did:key framing is left to the caller).
+
+**Porting gotcha #2**, same class of bug as the `bytes=` one above but a
+different trigger: `(= (seq a) (seq b))` on two SEPARATE `Uint8Array`
+instances with IDENTICAL content returned `false` in this cljs runtime, even
+though `(= (first (seq a)) (first (seq b)))` was `true` — `vec` compares
+correctly, `seq` does not. `x3dh_test.cljs`'s shared-secret assertions use
+`vec`, not `seq`; a JVM `x3dh_test.clj`-style literal port using `seq` would
+have silently passed its "different sessions produce different secrets" test
+regardless of whether the secrets actually differed (not= on two
+never-equal-anyway seqs is vacuously true) while ALSO failing its
+should-be-equal round-trip assertion — caught empirically, not by inspection.
+
+CACAO identity binding remains **JVM-only for now** — not needed by any cljs
+consumer yet, so not ported speculatively (same "port when a consumer
+actually needs it" policy X3DH was under until app-aozora needed it).
 
 Also out of scope (follow-up work, not implemented here, both backends):
 - **Key revocation / rotation policy** for SPKs and group sender-keys (the
@@ -110,7 +128,8 @@ src/kotoba/signal/
   hkdf.cljs      same algorithm, Web Crypto — CLJS/async (Promise)
   x25519.clj     raw 32-byte X25519 DH via JCA (JVM XDH provider) — JVM/sync
   x25519.cljs    raw 32-byte X25519 DH via @noble/curves — CLJS/sync (no Promise needed)
-  x3dh.clj       X3DH key agreement (identity/prekey bundles, initiate/respond) — JVM only, no CLJS port yet
+  x3dh.clj       X3DH key agreement (identity/prekey bundles, initiate/respond) — JVM/sync
+  x3dh.cljs      same state shape/algorithm — CLJS/async (Promise, Web Crypto HKDF)
   ratchet.clj    Double Ratchet (root KDF, chain KDF, AES-256-GCM messages) — JVM/sync
   ratchet.cljs   same state shape/algorithm — CLJS/async, + a bytes= content-equality
                  fix a naive port would have missed (see ns docstring)
@@ -118,7 +137,9 @@ src/kotoba/signal/
   group.cljs     same shape — CLJS/async, mostly glue over ratchet.cljs + Ed25519 sign/verify
 test/kotoba/signal/
   hkdf_test.clj(s)     RFC 5869 §A.1–A.3 vectors, byte-for-byte, both backends
-  x3dh_test.clj        bundle signature verify/reject, initiate↔respond round-trip (JVM only)
+  x3dh_test.clj(s)     bundle signature verify/reject, initiate↔respond round-trip, both
+                        backends; the CLJS suite's shared-secret assertions use vec, not
+                        seq — see the ns docstring's "porting gotcha #2"
   ratchet_test.clj(s)  forward secrecy, message-key uniqueness, full session, both
                         backends; the CLJS suite additionally round-trips every
                         envelope through JSON/base64 (simulating the wire) and
@@ -151,8 +172,32 @@ test/kotoba/signal/
 
 ## Usage — CLJS (async)
 
-No `x3dh.cljs` yet (see Scope) — bring your own session-establishment secret
-(X3DH-lite, a simpler ECDH, whatever fits) and bootstrap the ratchet from it:
+```clojure
+(require '[kotoba.signal.x3dh :as x3dh]
+         '[kotoba.signal.ratchet :as ratchet])
+
+(let [bob (x3dh/generate-identity)
+      [bundle _bob'] (x3dh/publish-bundle bob)
+      alice (x3dh/generate-identity)]
+  (-> (x3dh/x3dh-initiate alice bundle)
+      (.then (fn [{:keys [shared-secret ek-pub opk-id]}]
+               (-> (x3dh/x3dh-respond bob (:pub (:ik alice)) ek-pub opk-id)
+                   (.then (fn [bob-secret]
+                            ;; = on (seq typed-array) is unreliable here — use vec
+                            (assert (= (vec shared-secret) (vec bob-secret)))
+                            ;; --- Double Ratchet, bootstrapped from the X3DH secret ---
+                            (js/Promise.all
+                             #js [(ratchet/init-sender shared-secret (:pub (:spk bob)))
+                                  (ratchet/init-receiver shared-secret (:spk bob))]))))))
+      (.then (fn [^js pair] (ratchet/encrypt-message (aget pair 0) (utf8 "hi bob"))))
+      (.then (fn [[alice1 env1]] (ratchet/decrypt-message bob env1)))
+      (.then (fn [[_bob1 pt1]] (js/console.log (utf8-decode pt1))))))  ;=> "hi bob"
+```
+
+Bringing your own session-establishment secret (a simpler ECDH, "X3DH-lite"
+without one-time prekeys, whatever fits) and skipping `x3dh.cljs` entirely
+still works — `ratchet/init-sender`/`init-receiver` only need 32
+`shared-secret` bytes from anywhere:
 
 ```clojure
 (require '[kotoba.signal.ratchet :as ratchet])
