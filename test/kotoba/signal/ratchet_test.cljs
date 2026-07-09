@@ -149,3 +149,23 @@
                  (is (not (ratchet/bytes= stolen (:send-chain-key alice)))
                      "post-turn chain state is unrelated to what the attacker stole")
                  (done))))))
+
+(deftest decrypt-message-rejects-a-tampered-header-n
+  ;; the header {:dh-pub :n} is bound into the AEAD's authenticated data
+  ;; (header-aad) -- previously it was NOT, so an active party on the
+  ;; delivery path could flip :n (or :dh-pub) in transit and decrypt-
+  ;; message would trust it unconditionally. Tampering :n ALONE here
+  ;; (leaving :dh-pub unchanged, so the DH-ratchet decision branch is
+  ;; untouched) isolates the AAD-binding check specifically: pre-fix,
+  ;; this tampered call would have resolved successfully, since :n
+  ;; played no role in the AEAD computation at all.
+  (async done
+    (-> (then-all (start-session (fake-x3dh-session))
+                  (alice-sends "hello bob" :env1))
+        (.then (fn [{:keys [bob env1]}]
+                 (let [wire (roundtrip-envelope env1)
+                       tampered (update wire :header assoc :n (inc (:n (:header wire))))]
+                   (-> (ratchet/decrypt-message bob tampered)
+                       (.then (fn [_] (is false "tampered header :n must reject")))
+                       (.catch (fn [_] (is true "tampered header :n correctly rejected")))))))
+        (.then done))))

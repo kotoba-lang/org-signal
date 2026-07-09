@@ -99,6 +99,23 @@
         "each side ratchets to its own fresh DH keypair per turn")
     (is (some? alice3) (some? bob3))))
 
+(deftest decrypt-message-rejects-a-tampered-header-n
+  (testing "the header {:dh-pub :n} is bound into the AEAD's authenticated
+            data (header-aad) -- previously it was NOT, so an active party
+            on the delivery path could flip :n (or :dh-pub) in transit and
+            decrypt-message would trust it unconditionally. Tampering :n
+            ALONE here (leaving :dh-pub unchanged, so the DH-ratchet
+            decision branch is untouched) isolates the AAD-binding check
+            specifically: pre-fix, this tampered call would have decrypted
+            successfully, since :n played no role in the AEAD computation
+            at all"
+    (let [{:keys [shared-secret bob-initial-dh]} (session-pair)
+          alice (ratchet/init-sender shared-secret (:pub bob-initial-dh))
+          bob (ratchet/init-receiver shared-secret bob-initial-dh)
+          [_alice1 env1] (ratchet/encrypt-message alice (bytes< "hello bob"))
+          tampered (update env1 :header assoc :n (inc (:n (:header env1))))]
+      (is (thrown? AEADBadTagException (ratchet/decrypt-message bob tampered))))))
+
 (deftest each-message-in-a-chain-uses-a-distinct-message-key
   (let [{:keys [shared-secret bob-initial-dh]} (session-pair)
         alice (ratchet/init-sender shared-secret (:pub bob-initial-dh))
