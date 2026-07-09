@@ -64,6 +64,24 @@
   (doto (Cipher/getInstance "AES/GCM/NoPadding")
     (.init (int mode) (SecretKeySpec. key "AES") (GCMParameterSpec. 128 iv))))
 
+(defn- header-aad
+  "Canonical byte encoding of a ratchet header {:dh-pub :n} -- dh-pub (32
+   bytes, fixed length, so no framing/length-prefix is needed for the
+   concatenation to be unambiguous) followed by n as 8 big-endian bytes.
+   Bound into the AEAD's authenticated (not encrypted) data by encrypt-
+   message/decrypt-message below, so an active party on the delivery path
+   can't tamper with :dh-pub/:n without the receiver's AEAD tag check
+   failing. Headers still travel in the CLEAR (a different, narrower
+   property -- confidentiality, see ns/README's Header encryption scope
+   note) -- this only adds the INTEGRITY binding the Double Ratchet spec
+   expects a header to have, previously missing entirely (encrypt-message/
+   decrypt-message called ratchet-encrypt/ratchet-decrypt with no AAD at
+   all, despite both already accepting one)."
+  ^bytes [^bytes dh-pub n]
+  (let [n-bytes (byte-array 8)]
+    (dotimes [i 8] (aset-byte n-bytes i (unchecked-byte (bit-shift-right n (* 8 (- 7 i))))))
+    (byte-array (concat dh-pub n-bytes))))
+
 (defn ratchet-encrypt
   "message-key (32 raw bytes, used directly as the AES-256 key) + plaintext (+
    optional AAD) -> {:iv bytes12 :ciphertext bytes} via AES-256-GCM with a fresh
@@ -154,8 +172,8 @@
             (throw (ex-info "ratchet: cannot send before receiving a first message from the peer"
                              {:dh-remote (:dh-remote state)})))
         {:keys [chain-key message-key]} (kdf-chain-key (:send-chain-key state))
-        env (ratchet-encrypt message-key plaintext)
-        header {:dh-pub (:dh-pub state) :n (:send-n state)}]
+        header {:dh-pub (:dh-pub state) :n (:send-n state)}
+        env (ratchet-encrypt message-key plaintext (header-aad (:dh-pub header) (:n header)))]
     [(-> state (assoc :send-chain-key chain-key) (update :send-n inc))
      (assoc env :header header)]))
 
@@ -168,5 +186,5 @@
                 state
                 (dh-ratchet-recv state (:dh-pub header)))
         {:keys [chain-key message-key]} (kdf-chain-key (:recv-chain-key state))
-        pt (ratchet-decrypt message-key envelope)]
+        pt (ratchet-decrypt message-key envelope (header-aad (:dh-pub header) (:n header)))]
     [(-> state (assoc :recv-chain-key chain-key) (update :recv-n inc)) pt]))

@@ -75,6 +75,32 @@
 (defn- import-aes-key [^js raw]
   (js/crypto.subtle.importKey "raw" raw #js {:name "AES-GCM"} false #js ["encrypt" "decrypt"]))
 
+(defn- header-aad
+  "Canonical byte encoding of a ratchet header {:dh-pub :n} -- dh-pub (32
+   bytes, fixed length, so no framing/length-prefix is needed for the
+   concatenation to be unambiguous) followed by n as 8 big-endian bytes.
+   Bound into the AEAD's authenticated (not encrypted) data by encrypt-
+   message/decrypt-message below (Web Crypto's :additionalData), so an
+   active party on the delivery path can't tamper with :dh-pub/:n without
+   the receiver's AEAD tag check failing. Headers still travel in the
+   CLEAR (a different, narrower property -- confidentiality, see ns
+   docstring's PORTING NOTE area / README's Header encryption scope
+   note) -- this only adds the INTEGRITY binding the Double Ratchet spec
+   expects a header to have, previously missing entirely (JVM sibling
+   has the identical fix, same rationale)."
+  [^js dh-pub n]
+  (let [out (js/Uint8Array. (+ (.-length dh-pub) 8))]
+    (.set out dh-pub 0)
+    ;; division/modulo, NOT bit-shift -- JS's `>>>`/`bit-and` coerce their
+    ;; operand to a 32-bit int first (ToUint32/ToInt32), which would
+    ;; silently truncate/misbehave for a shift >= 32 on an n that ever grew
+    ;; past 2^31; div/mod stays correct across JS's full safe-integer range.
+    (loop [i 7 v n]
+      (when (>= i 0)
+        (aset out (+ (.-length dh-pub) i) (mod v 256))
+        (recur (dec i) (js/Math.floor (/ v 256)))))
+    out))
+
 (defn ratchet-encrypt
   "message-key (32 raw bytes, used directly as the AES-256 key) + plaintext (+
    optional AAD) -> Promise<{:iv Uint8Array(12) :ciphertext Uint8Array}> via
@@ -169,12 +195,13 @@
         (-> (dh-ratchet-send state) (.then (fn [s] (assoc s :send-chain-remote (:dh-remote s)))))
         (js/Promise.resolve state))
       (.then (fn [state]
-               (-> (kdf-chain-key (:send-chain-key state))
-                   (.then (fn [{:keys [chain-key message-key]}]
-                            (-> (ratchet-encrypt message-key plaintext)
-                                (.then (fn [env]
-                                         [(-> state (assoc :send-chain-key chain-key) (update :send-n inc))
-                                          (assoc env :header {:dh-pub (:dh-pub state) :n (:send-n state)})]))))))))))
+               (let [header {:dh-pub (:dh-pub state) :n (:send-n state)}]
+                 (-> (kdf-chain-key (:send-chain-key state))
+                     (.then (fn [{:keys [chain-key message-key]}]
+                              (-> (ratchet-encrypt message-key plaintext (header-aad (:dh-pub header) (:n header)))
+                                  (.then (fn [env]
+                                           [(-> state (assoc :send-chain-key chain-key) (update :send-n inc))
+                                            (assoc env :header header)])))))))))))
 
 (defn decrypt-message
   "Advance the receiving chain by one message, DH-ratcheting first if the
@@ -188,6 +215,6 @@
       (.then (fn [state]
                (-> (kdf-chain-key (:recv-chain-key state))
                    (.then (fn [{:keys [chain-key message-key]}]
-                            (-> (ratchet-decrypt message-key envelope)
+                            (-> (ratchet-decrypt message-key envelope (header-aad (:dh-pub header) (:n header)))
                                 (.then (fn [pt]
                                          [(-> state (assoc :recv-chain-key chain-key) (update :recv-n inc)) pt]))))))))))
