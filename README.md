@@ -91,6 +91,13 @@ Also out of scope (follow-up work, not implemented here, both backends):
   delivery within a chain (see the scope notes in `ratchet.clj` / `group.clj`).
 - **Header encryption** (Signal's optional "sealed sender"-adjacent header
   protection) — ratchet headers (`{:dh-pub :n}`) are sent in the clear here.
+- **PQXDH** — X3DH today. A missing PQ prekey on the sealed bundle is
+  absence, not a silent hybrid upgrade. ML-KEM wrap lives in `envelope.kem`.
+- **CLJS `sealed` consumer** — the cljs ratchet is Promise-shaped; this
+  slice is JVM-only. Do not pretend `.cljc` would make them the same.
+- **Envelope object wrap** — `envelope.seal` is CLJS/Web Crypto. Attachments
+  here carry the file key *inside* the Signal plaintext (`:wrapped-key
+  "in-session"` on the outer map), not a second envelope wrap.
 
 ## Why the JVM backend is built the way it is (HKDF hand-rolled, no XEdDSA)
 
@@ -135,6 +142,9 @@ src/kotoba/signal/
                  fix a naive port would have missed (see ns docstring)
   group.clj      sender-keys group ratchet (distribution, sender/member derive) — JVM/sync
   group.cljs     same shape — CLJS/async, mostly glue over ratchet.cljs + Ed25519 sign/verify
+  sealed.clj     JVM consumer: real X3DH + Double Ratchet → kotoba.protocol.sealed
+                 maps (ADR-2608161600). File keys live in the ratchet plaintext.
+                 No cljs sibling this slice (Promise-shaped ratchet = named gap).
 test/kotoba/signal/
   hkdf_test.clj(s)     RFC 5869 §A.1–A.3 vectors, byte-for-byte, both backends
   x3dh_test.clj(s)     bundle signature verify/reject, initiate↔respond round-trip, both
@@ -145,6 +155,8 @@ test/kotoba/signal/
                         envelope through JSON/base64 (simulating the wire) and
                         has a dedicated post-compromise-security healing test
   group_test.clj(s)    distribution auth, sender/member lockstep, chain forward secrecy, both backends
+  sealed_test.clj      JVM: public prekey bundle, file-key-in-plaintext, mailbox
+                       append-only, identical plaintext ≠ identical CID, AEAD tamper
 ```
 
 ## Usage — JVM (sync)
@@ -169,6 +181,34 @@ test/kotoba/signal/
           [_b1 pt1] (ratchet/decrypt-message b env1)]
       (String. ^bytes pt1 "UTF-8"))))               ;=> "hi bob"
 ```
+
+## Usage — sealed IPLD wire (JVM)
+
+`kotoba.signal.sealed` runs the same X3DH + Double Ratchet and emits
+`kotoba.protocol.sealed` maps. The ciphertext CID is an object; the session
+is the construction; IPNS is a pointer, not encryption.
+
+```clojure
+(require '[kotoba.signal.x3dh :as x3dh]
+         '[kotoba.signal.sealed :as sealed])
+
+(def bob (x3dh/generate-identity))
+(def alice (x3dh/generate-identity))
+(let [{:keys [public]} (sealed/publish bob)
+      alice-s (sealed/initiate alice public)
+      body {:text "hi bob"
+            :attachments [{:cid "bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq"
+                           :file-key "file-key-stays-in-plaintext"
+                           :size 12}]}
+      [_alice1 msg] (sealed/encrypt alice-s body)
+      [_bob1 opened] (sealed/accept bob msg)]
+  (:text opened))   ;=> "hi bob"
+;; (get-in msg [:attachments 0 :wrapped-key]) => "in-session"
+;; (get-in opened [:attachments 0 :file-key]) => "file-key-stays-in-plaintext"
+```
+
+`store-msg` / `put-in-mailbox` take an injected `hash-fn`. This repo does
+not hash; protocol does not hash; production binds the DAG-CBOR hasher.
 
 ## Usage — CLJS (async)
 
@@ -231,7 +271,7 @@ the same 1:1 session above) to every member:
 
 ## Correctness
 
-**JVM** — `clojure -M:test` → **23 tests / 62 assertions, 0 failures, 0 errors**:
+**JVM** — `clojure -M:test` → **34 tests / 102 assertions, 0 failures, 0 errors**:
 - HKDF pinned against all 3 RFC 5869 test vectors (extract + expand + combined).
 - X3DH: SPK-signature verify/reject, initiate↔respond shared-secret round-trip
   (with and without an OPK), distinct sessions ⇒ distinct secrets, OPK pool
@@ -244,6 +284,10 @@ the same 1:1 session above) to every member:
   and member independently derive identical message keys in lockstep, 50-step
   chain forward secrecy, a member without a valid distribution cannot forge
   agreement with the sender's chain.
+- Sealed IPLD wire: public prekey bundle (PQ absent, not upgraded), key-role
+  collision refused, file key recovered only after decrypt, mailbox
+  append-only + IPNS head not confidential, identical plaintext ≠ identical
+  CID, AEAD tamper on header `:n`.
 
 **CLJS** — `pnpm install && pnpm exec shadow-cljs compile test && node out/node-tests.js`
 → **16 tests / 31 assertions, 0 failures, 0 errors**:
