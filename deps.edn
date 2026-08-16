@@ -1,5 +1,9 @@
 {:paths ["src"]
- :deps {io.github.kotoba-lang/org-ietf-ed25519 {:git/sha "ec077bca1f90027bc718557f1e8bb6fbc004fe5a"}}
+ :deps {io.github.kotoba-lang/org-ietf-ed25519 {:git/sha "ec077bca1f90027bc718557f1e8bb6fbc004fe5a"}
+        ;; pin = kotoba-protocol main tip that landed kotoba.protocol.sealed
+        ;; (ADR-2608161600). Protocol stays zero-crypto; this repo owns the
+        ;; ratchet and emits those maps.
+        io.github.kotoba-lang/kotoba-protocol {:git/sha "ed333b8398c3178c2aef5be20cb15d9243bc5a80"}}
  :aliases {:test {:extra-paths ["test"]
                   :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
                   :main-opts ["-m" "cognitect.test-runner"]}
