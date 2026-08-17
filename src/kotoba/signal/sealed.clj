@@ -9,9 +9,9 @@
 ;;   * stores the session ciphertext under an object CID (composition)
 ;;   * appends that CID to a mailbox whose IPNS head is naming, not encryption
 ;;
-;; JVM only this slice. The CLJS ratchet is Promise-shaped; a cljs sibling
-;; is a named gap, not silently "the same ns". PQXDH is also a named gap
-;; (X3DH today; a missing PQ prekey is absence, not a hybrid upgrade).
+;; JVM consumer. The CLJS sibling is sealed.cljs (Promise-shaped ratchet).
+;; PQXDH is a named gap (X3DH today; a missing PQ prekey is absence, not a
+;; hybrid upgrade).
 ;;
 ;; Outer attachment :wrapped-key is the sentinel "in-session". The real
 ;; file key must not appear on the content-protocol object — the mailbox
