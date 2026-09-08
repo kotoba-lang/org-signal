@@ -8,7 +8,7 @@
 ;; for that reason; PQXDH remains a named gap on both backends.
 (ns kotoba.signal.sealed
   (:require [cljs.reader :as reader]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [kotoba.protocol.sealed :as sealed]
             [kotoba.signal.ratchet :as ratchet]
             [kotoba.signal.x3dh :as x3dh]))
