@@ -18,7 +18,7 @@
 ;; can read that object.
 (ns kotoba.signal.sealed
   (:require [clojure.edn :as edn]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [kotoba.protocol.sealed :as sealed]
             [kotoba.signal.ratchet :as ratchet]
             [kotoba.signal.x3dh :as x3dh])
