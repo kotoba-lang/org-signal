@@ -9,3 +9,6 @@ node_modules/
 out/
 .shadow-cljs/
 pnpm-lock.yaml
+
+# nbb dependency cache -- a build artifact, not source
+.nbb/
