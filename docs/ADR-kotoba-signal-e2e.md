@@ -57,7 +57,7 @@ README).
 
 ## Scope / non-scope
 
-In scope (implemented + tested, `clojure -M:test`: 23 tests / 62 assertions):
+In scope (implemented + tested, `kbb -M:test`: 23 tests / 62 assertions):
 - X3DH key agreement, round-trip verified.
 - Double Ratchet: root KDF, chain KDF, AES-256-GCM messages, full bidirectional
   session with DH ratchet turns.
