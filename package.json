@@ -7,7 +7,7 @@
     "shadow-cljs": "^2.28.20"
   },
   "scripts": {
-    "task": "nbb scripts/run-task.cljs",
-    "tasks": "nbb scripts/run-task.cljs"
+    "task": "nbb scripts/run-task.cljk",
+    "tasks": "nbb scripts/run-task.cljk"
   }
 }

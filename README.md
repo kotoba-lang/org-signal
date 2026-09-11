@@ -103,13 +103,13 @@ Also out of scope (follow-up work, not implemented here, both backends):
   ("X25519" KeyAgreement, "AES/GCM/NoPadding" Cipher) rather than reimplementing
   field arithmetic — these are exactly the primitives audited crypto providers
   ship, and reimplementing them "for portability" is how subtle timing/branch
-  bugs get introduced. `src/kotoba/signal/x25519.clj` only adds the thin
+  bugs get introduced. `src/kotoba/signal/x25519.clj.cljk` only adds the thin
   PKCS8/X.509 DER wrapping so raw 32-byte keys can travel in EDN maps, using
   the same technique `com-junkawasaki/ed25519-clj` already established for
   Ed25519 (identical minimal key encoding, different OID byte:
   X25519 = `1.3.101.110`, Ed25519 = `1.3.101.112`).
 - **HKDF (RFC 5869)** has no JDK built-in (only the raw HMAC primitive it's
-  built from), so `src/kotoba/signal/hkdf.clj` implements it directly on
+  built from), so `src/kotoba/signal/hkdf.clj.cljk` implements it directly on
   `javax.crypto.Mac`("HmacSHA256") and is pinned against **all three** RFC 5869
   Appendix A test vectors (basic, longer inputs/outputs, zero-length
   salt/info), independently cross-checked against a from-scratch Python

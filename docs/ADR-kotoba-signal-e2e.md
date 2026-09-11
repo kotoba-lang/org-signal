@@ -31,21 +31,21 @@ aozora private-streaming ADR a real group-ratchet dependency to build on.
 
 Implement, in plain JVM Clojure (see README "Scope" for why not CLJC/CJS yet):
 
-1. **X3DH** (`src/kotoba/signal/x3dh.clj`) — identity/signed-prekey/one-time-
+1. **X3DH** (`src/kotoba/signal/x3dh.clj.cljk`) — identity/signed-prekey/one-time-
    prekey bundles, `x3dh-initiate` / `x3dh-respond`, HKDF-SHA256 key derivation
    over 3–4 X25519 DH outputs, SPK signed with a separate Ed25519 identity key
    (no XEdDSA — see README "Why JVM-only...").
-2. **Double Ratchet** (`src/kotoba/signal/ratchet.clj`) — root KDF (HKDF) +
+2. **Double Ratchet** (`src/kotoba/signal/ratchet.clj.cljk`) — root KDF (HKDF) +
    symmetric-key chain KDF (HMAC-SHA256, one-way) + AES-256-GCM message
    encryption, with a DH ratchet step per direction turn.
-3. **Group ratchet / sender-keys** (`src/kotoba/signal/group.clj`) — one
+3. **Group ratchet / sender-keys** (`src/kotoba/signal/group.clj.cljk`) — one
    sender's chain key, distributed once per member via a pairwise X3DH
    channel, walked forward by the sender per segment/message and independently
    walked forward by each member in lockstep. This is the primitive the
    aozora private-streaming ADR consumes: one broadcaster ratchets forward
    once per media segment, every already-bootstrapped viewer derives that
    segment's AES key without a fresh DH round.
-4. **HKDF-SHA256** (`src/kotoba/signal/hkdf.clj`) — hand-rolled per RFC 5869
+4. **HKDF-SHA256** (`src/kotoba/signal/hkdf.clj.cljk`) — hand-rolled per RFC 5869
    (the JDK has no built-in HKDF, only the HMAC it's built from), pinned
    against all three RFC 5869 Appendix A test vectors.
 
