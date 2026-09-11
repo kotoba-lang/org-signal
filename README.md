@@ -288,7 +288,7 @@ the same 1:1 session above) to every member:
 
 ## Correctness
 
-**JVM** — `clojure -M:test` → **34 tests / 102 assertions, 0 failures, 0 errors**:
+**JVM** — `kbb -M:test` → **34 tests / 102 assertions, 0 failures, 0 errors**:
 - HKDF pinned against all 3 RFC 5869 test vectors (extract + expand + combined).
 - X3DH: SPK-signature verify/reject, initiate↔respond shared-secret round-trip
   (with and without an OPK), distinct sessions ⇒ distinct secrets, OPK pool
@@ -306,7 +306,7 @@ the same 1:1 session above) to every member:
   append-only + IPNS head not confidential, identical plaintext ≠ identical
   CID, AEAD tamper on header `:n`.
 
-**CLJS** — `pnpm install && pnpm exec shadow-cljs compile test && node out/node-tests.js`
+**CLJS** — `pnpm install && pnpm exec amu compile --target wasm32-browser test && node out/node-tests.js`
 → **32 tests / 82 assertions, 0 failures, 0 errors**:
 - Same HKDF RFC 5869 vectors, same chain-key forward secrecy / message-key
   uniqueness / AES-GCM round-trip+tamper properties as the JVM suite.
