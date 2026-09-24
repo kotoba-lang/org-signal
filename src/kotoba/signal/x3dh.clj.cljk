@@ -34,7 +34,7 @@
 ;;   (x3dh/x3dh-respond bob (:pub (:ik alice)) (:ek-pub init) (:opk-id init))
 ;;   ;; => same 32 bytes as (:shared-secret init)
 (ns kotoba.signal.x3dh
-  (:require [kotoba.signal.x25519 :as dh]
+  (:require [kotoba.bytes :as kbytes] [kotoba.signal.x25519 :as dh]
             [kotoba.signal.hkdf :as hkdf]
             [ed25519.core :as ed])
   (:import (java.security SecureRandom)))
@@ -50,7 +50,7 @@
 ;; nonces; kept here for spec fidelity even though this implementation doesn't
 ;; do XEdDSA (see ns docstring).
 (def ^:private F (byte-array (repeat 32 (unchecked-byte 0xff))))
-(def ^:private info (.getBytes "kotoba-signal X3DH v1" "UTF-8"))
+(def ^:private info (kbytes/utf8-bytes "kotoba-signal X3DH v1"))
 
 (defn- kdf
   "HKDF(salt=0, ikm = F || DH1 || DH2 || DH3 || [DH4], info, 32) -> shared secret."

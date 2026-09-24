@@ -33,7 +33,7 @@
 ;;   (let [[member-ck' mk] (group/member-derive (:chain-key dist))]
 ;;     (group/decrypt-segment mk envelope))
 (ns kotoba.signal.group
-  (:require [kotoba.signal.ratchet :as ratchet]
+  (:require [kotoba.bytes :as kbytes] [kotoba.signal.ratchet :as ratchet]
             [ed25519.core :as ed])
   (:import (java.security SecureRandom)))
 
@@ -55,7 +55,7 @@
      :sig-pub (ed/did-key-from-seed sig-seed)}))
 
 (defn- distribution-payload ^bytes [chain-key iteration]
-  (byte-array (concat (seq chain-key) (seq (.getBytes (str iteration) "UTF-8")))))
+  (byte-array (concat (seq chain-key) (seq (kbytes/utf8-bytes (str iteration))))))
 
 (defn distribution-message
   "What the sender sends to each member, over a pairwise X3DH-encrypted channel,

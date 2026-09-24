@@ -22,14 +22,14 @@
 ;;   (let [[alice' env] (ratchet/encrypt-message alice "hi")]
 ;;     (ratchet/decrypt-message bob env))      ;=> [bob' "hi"]
 (ns kotoba.signal.ratchet
-  (:require [kotoba.signal.x25519 :as dh]
+  (:require [kotoba.bytes :as kbytes] [kotoba.signal.x25519 :as dh]
             [kotoba.signal.hkdf :as hkdf])
   (:import (java.security SecureRandom)
            (javax.crypto Cipher Mac)
            (javax.crypto.spec SecretKeySpec GCMParameterSpec)))
 
 ;; ── KDFs (Double Ratchet spec §5.2) ────────────────────────────────────────────
-(def ^:private root-kdf-info (.getBytes "kotoba-signal DR root" "UTF-8"))
+(def ^:private root-kdf-info (kbytes/utf8-bytes "kotoba-signal DR root"))
 (def ^:private chain-const-msg   (byte-array [(unchecked-byte 0x01)]))
 (def ^:private chain-const-chain (byte-array [(unchecked-byte 0x02)]))
 

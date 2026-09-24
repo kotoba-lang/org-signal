@@ -1,5 +1,5 @@
 (ns kotoba.signal.sealed-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.bytes :as kbytes] [kotoba.test :refer [deftest is testing]]
             [kotoba.protocol.sealed :as proto]
             [kotoba.signal.ratchet :as ratchet]
             [kotoba.signal.sealed :as sealed]
@@ -15,7 +15,7 @@
    not hash; tests must not pretend this ns grew a hasher."
   [x]
   (let [md (.digest (MessageDigest/getInstance "SHA-256")
-                    (.getBytes (pr-str x) "UTF-8"))
+                    (kbytes/utf8-bytes (pr-str x)))
         alphabet "abcdefghijklmnopqrstuvwxyz234567"
         chars (map #(nth alphabet (bit-and (int %) 31)) md)]
     (str "bafkrei" (apply str chars))))
