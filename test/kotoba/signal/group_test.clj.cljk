@@ -1,5 +1,5 @@
 (ns kotoba.signal.group-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.bytes :as kbytes] [kotoba.test :refer [deftest is]]
             [kotoba.signal.group :as group]))
 
 (deftest distribution-message-verifies
@@ -31,7 +31,7 @@
         dist (group/distribution-message sk 0)
         [_sk1 sender-mk] (group/sender-advance sk)
         [_ck1 member-mk] (group/member-derive (:chain-key dist))
-        segment (.getBytes "aozora private segment #42" "UTF-8")
+        segment (kbytes/utf8-bytes "aozora private segment #42")
         env (group/encrypt-segment sender-mk segment)]
     (is (= (seq segment) (seq (group/decrypt-segment member-mk env))))))
 

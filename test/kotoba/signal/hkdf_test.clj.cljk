@@ -1,5 +1,5 @@
 (ns kotoba.signal.hkdf-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [kotoba.signal.hkdf :as hkdf])
   (:import (java.util HexFormat)))
 

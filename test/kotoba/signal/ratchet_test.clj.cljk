@@ -1,5 +1,5 @@
 (ns kotoba.signal.ratchet-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.bytes :as kbytes] [kotoba.test :refer [deftest is testing]]
             [kotoba.signal.x3dh :as x3dh]
             [kotoba.signal.ratchet :as ratchet])
   (:import (java.security SecureRandom)
@@ -8,7 +8,7 @@
 (defn- rand-bytes ^bytes [n]
   (let [b (byte-array n)] (.nextBytes (SecureRandom.) b) b))
 
-(defn- bytes< ^bytes [^String s] (.getBytes s "UTF-8"))
+(defn- bytes< ^bytes [^String s] (kbytes/utf8-bytes s))
 
 (deftest chain-key-forward-secrecy
   (testing "each chain-key step yields a distinct, unrecoverable message-key and next chain-key"
@@ -39,20 +39,20 @@
 
 (deftest ratchet-encrypt-decrypt-roundtrip
   (let [mk (rand-bytes 32)
-        pt (.getBytes "the segment key rotates every message" "UTF-8")
+        pt (kbytes/utf8-bytes "the segment key rotates every message")
         env (ratchet/ratchet-encrypt mk pt)]
     (is (= (seq pt) (seq (ratchet/ratchet-decrypt mk env))))))
 
 (deftest ratchet-decrypt-rejects-tamper
   (let [mk (rand-bytes 32)
-        env (ratchet/ratchet-encrypt mk (.getBytes "hello" "UTF-8"))
+        env (ratchet/ratchet-encrypt mk (kbytes/utf8-bytes "hello"))
         ct (:ciphertext env)
         _ (aset-byte ct 0 (unchecked-byte (bit-xor (aget ct 0) 1)))]
     (is (thrown? AEADBadTagException (ratchet/ratchet-decrypt mk env)))))
 
 (deftest ratchet-encrypt-uses-fresh-iv-each-call
   (let [mk (rand-bytes 32)
-        pt (.getBytes "same plaintext, same key, different messages" "UTF-8")
+        pt (kbytes/utf8-bytes "same plaintext, same key, different messages")
         envs (repeatedly 20 #(ratchet/ratchet-encrypt mk pt))]
     (is (= 20 (count (distinct (map (comp seq :iv) envs)))) "IVs never repeat")
     (is (= 20 (count (distinct (map (comp seq :ciphertext) envs))))
@@ -92,9 +92,9 @@
         [alice2 pt2] (ratchet/decrypt-message alice1 env2)
         [alice3 env3] (ratchet/encrypt-message alice2 (bytes< "second message from alice"))
         [bob3 pt3] (ratchet/decrypt-message bob2 env3)]
-    (is (= "hello bob" (String. ^bytes pt1 "UTF-8")))
-    (is (= "hi alice" (String. ^bytes pt2 "UTF-8")))
-    (is (= "second message from alice" (String. ^bytes pt3 "UTF-8")))
+    (is (= "hello bob" (kbytes/utf8-string ^bytes pt1)))
+    (is (= "hi alice" (kbytes/utf8-string ^bytes pt2)))
+    (is (= "second message from alice" (kbytes/utf8-string ^bytes pt3)))
     (is (not= (seq (:dh-pub alice1)) (seq (:dh-pub bob2)))
         "each side ratchets to its own fresh DH keypair per turn")
     (is (some? alice3) (some? bob3))))

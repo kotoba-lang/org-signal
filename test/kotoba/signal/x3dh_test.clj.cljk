@@ -1,5 +1,5 @@
 (ns kotoba.signal.x3dh-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.signal.x3dh :as x3dh]))
 
 (deftest bundle-signature-verifies

@@ -17,7 +17,7 @@
 ;; file key must not appear on the content-protocol object — the mailbox
 ;; can read that object.
 (ns kotoba.signal.sealed
-  (:require [kotoba.lang.edn :as edn]
+  (:require [kotoba.bytes :as kbytes] [kotoba.lang.edn :as edn]
             [kotoba.lang.text :as str]
             [kotoba.protocol.sealed :as sealed]
             [kotoba.signal.ratchet :as ratchet]
@@ -170,7 +170,7 @@
       (let [outers (mapv outer-attachment (or (:attachments plaintext) []))]
         (if-let [att-err (first (filter :error outers))]
           [session att-err]
-          (let [pt (.getBytes (pr-str (inner-body plaintext)) "UTF-8")
+          (let [pt (kbytes/utf8-bytes (pr-str (inner-body plaintext)))
                 [r' env] (ratchet/encrypt-message (:ratchet session) pt)
                 msg (sealed/message {:construction :session
                                      :header (wire-header session env)
@@ -198,7 +198,7 @@
       (if (nil? env)
         [session (err :invalid-wire)]
         (let [[r' pt] (ratchet/decrypt-message (:ratchet session) env)
-              body (edn/read-string {:eof nil} (String. ^bytes pt "UTF-8"))]
+              body (edn/read-string {:eof nil} (kbytes/utf8-string ^bytes pt))]
           [(assoc session :ratchet r') body])))))
 
 (defn accept
