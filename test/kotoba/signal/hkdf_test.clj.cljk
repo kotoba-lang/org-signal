@@ -1,5 +1,5 @@
 (ns kotoba.signal.hkdf-test
-  (:require [kotoba.test :refer [deftest is]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.test :refer [deftest is]]
             [kotoba.signal.hkdf :as hkdf])
   (:import (java.util HexFormat)))
 
@@ -45,5 +45,5 @@
     (is (= (seq okm) (seq (hkdf/hkdf nil ikm nil 42))) "nil salt/info == zero-length salt/info")))
 
 (deftest hkdf-expand-rejects-oversized-length
-  (is (thrown? clojure.lang.ExceptionInfo
+  (is (thrown? kerror/ExceptionInfo
                (hkdf/hkdf-expand (byte-array 32) (byte-array 0) (* 256 32)))))
