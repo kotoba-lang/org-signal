@@ -1,5 +1,5 @@
 (ns kotoba.signal.ratchet-test
-  (:require [kotoba.bytes :as kbytes] [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.bytes :as kbytes] [kotoba.test :refer [deftest is testing]]
             [kotoba.signal.x3dh :as x3dh]
             [kotoba.signal.ratchet :as ratchet])
   (:import (java.security SecureRandom)
@@ -77,7 +77,7 @@
       (try
         (ratchet/encrypt-message bob (bytes< "bob speaks first?"))
         (is false "expected encrypt-message to throw ex-info")
-        (catch clojure.lang.ExceptionInfo e
+        (catch kerror/ExceptionInfo e
           (is (re-find #"cannot send before receiving" (.getMessage e))))
         (catch Exception e
           (is false (str "expected ex-info, got " (.getClass e) ": " (.getMessage e))))))))
