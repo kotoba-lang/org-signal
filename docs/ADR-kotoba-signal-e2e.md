@@ -5,14 +5,14 @@
 
 ## Context
 
-`kotoba-lang/kotoba`'s `CLAUDE.md` states the runtime's authorization model as
+`kotoba-lang/kotoba`'s `AGENTS.md` states the runtime's authorization model as
 "CACAO (depth-2 delegation) + Signal E2E (X3DH → Double Ratchet, group)". The
 "Signal E2E" half used to be a Rust crate, also named `kotoba-signal`, inside
 the `kotoba-lang/kotoba` Rust workspace. That workspace was **fully removed**
 in `kotoba-lang/kotoba` PR #259 (2026-07-01); see that repo's
 `docs/rust-crate-migration.md` for the policy driving the removal: new
 implementations are CLJC/EDN-first, with native adapters (Rust/etc.) allowed
-later but never holding semantic authority. The `CLAUDE.md` line referencing
+later but never holding semantic authority. The `AGENTS.md` line referencing
 Signal E2E is now the only trace of the prior Rust implementation — the actual
 code is gone.
 
